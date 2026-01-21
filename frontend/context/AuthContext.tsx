@@ -4,9 +4,12 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 
+// 1. Інтерфейс користувача (включає нові поля)
 interface User {
+  id: number;
   username: string;
-  role: string;
+  role: 'driver' | 'mechanic';
+  phone: string; 
 }
 
 interface AuthContextType {
@@ -23,58 +26,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
-  // 1. При завантаженні сторінки перевіряємо, чи ми вже в системі
+  // 1. При завантаженні сторінки перевіряємо токен і завантажуємо профіль
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('access_token');
+      
       if (token) {
         try {
-          // Якщо є токен, питаємо сервер "Хто я?"
-          // (Якщо ти ще не зробив ендпоінт /me, можна брати з localStorage як тимчасове рішення)
-          const savedName = localStorage.getItem('user_name');
-          const savedRole = localStorage.getItem('user_role');
-          
-          if (savedName && savedRole) {
-             setUser({ username: savedName, role: savedRole });
-          } else {
-             // Правильний шлях: завантажити з бекенду
-             const res = await api.get('/me');
-             setUser({ username: res.data.username, role: res.data.role });
-          }
+           // Запитуємо повні дані профілю з бекенду
+           const res = await api.get('/me');
+           
+           // Зберігаємо в стейт, явно вказуючи типи
+           setUser({
+             id: res.data.id,
+             username: res.data.username,
+             role: res.data.role as 'driver' | 'mechanic', // Виправляємо помилку типу
+             phone: res.data.phone
+           });
+
         } catch (error) {
-          console.error("Session expired");
-          logout(); // Якщо токен невалідний - викидаємо
+          console.error("Session expired or fetch error", error);
+          logout(); 
         }
       }
       setIsLoading(false);
     };
+
     initAuth();
   }, []);
 
-  // 2. Функція входу (викликаємо її з форми логіна)
+  // 2. Функція входу
   const login = async (tokens: { access: string, refresh: string }) => {
     localStorage.setItem('access_token', tokens.access);
     localStorage.setItem('refresh_token', tokens.refresh);
     
-    // Отримуємо дані юзера
-    const res = await api.get('/me');
-    
-    const userData = { username: res.data.username, role: res.data.role };
-    setUser(userData);
-    
-    // Зберігаємо про всяк випадок
-    localStorage.setItem('user_name', userData.username);
-    localStorage.setItem('user_role', userData.role);
-    
-    router.push('/'); // Редирект на головну
+    // Одразу після збереження токенів тягнемо дані юзера
+    try {
+      const res = await api.get('/me');
+      
+      const userData: User = { 
+        id: res.data.id,
+        username: res.data.username, 
+        role: res.data.role as 'driver' | 'mechanic', // Кастуємо тип
+        phone: res.data.phone 
+      };
+      
+      setUser(userData);
+      
+      // Ми більше не зберігаємо дані юзера в localStorage (лише токени),
+      // щоб дані завжди були актуальні з бази.
+      
+      router.push('/'); 
+    } catch (e) {
+      console.error("Login fetch error", e);
+    }
   };
 
   // 3. Функція виходу
   const logout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user_name');
-    localStorage.removeItem('user_role');
+    // Видаляти user_name/role більше не треба, бо ми їх і не зберігаємо
     setUser(null);
     router.push('/login');
   };
@@ -86,7 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Хук, щоб зручно використовувати в компонентах: const { user } = useAuth();
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

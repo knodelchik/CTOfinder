@@ -1,9 +1,42 @@
 
 from ninja import Schema
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
+class CarIn(Schema):
+    license_plate: str
+    brand_model: str
+    year: int = None # type: ignore
+    vin: str = None# type: ignore
+    color: str = None # type: ignore
+    type: str = None # type: ignore
+    body: str = None # type: ignore
+    fuel: str = None # type: ignore
+    engine_volume: str = None # type: ignore
+    weight: str = None # type: ignore
+
+class CarOut(Schema):
+    id: int
+    license_plate: str
+    brand_model: str
+    year: int = None # type: ignore
+    vin: str = None # type: ignore
+    color: str = None # type: ignore
+    type: str = None # type: ignore
+    body: str = None # type: ignore
+    fuel: str = None # type: ignore
+    engine_volume: str = None # type: ignore
+    weight: str = None # type: ignore
+
+# ... (StationIn, StationOut залишаються без змін)
 # Що ми чекаємо від фронтенда при реєстрації
+class StationIn(Schema):
+    name: str
+    address: str
+    phone: str
+    lat: float
+    lng: float
+    description: str = ""
 class UserRegisterSchema(Schema):
     username: str
     password: str
@@ -16,13 +49,13 @@ class UserOutSchema(Schema):
     id: int
     username: str
     role: str
-    phone: Optional[str] = None
+    phone: str = None # type: ignore
 
     # ... (попередні імпорти)
 
 # 1. Схема для створення заявки (Вхідні дані)
 class RequestCreateSchema(Schema):
-    car_model: str
+    car_id: int
     description: str
     category_id: int # ID категорії (напр. 1 - Ходова)
     lat: float       # Широта (напр. 50.45)
@@ -54,6 +87,8 @@ class OfferOutSchema(Schema):
     price: float
     comment: str
     is_accepted: bool
+    station_address: str = None # type: ignore
+    distance_km: float = None  # type: ignore
 
 # ... твій попередній код ...
 

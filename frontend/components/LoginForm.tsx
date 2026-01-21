@@ -2,47 +2,45 @@
 
 import { useState } from 'react';
 import api from '@/lib/api';
-import { useAuth } from '@/context/AuthContext'; // <--- Імпорт
+import { useAuth } from '@/context/AuthContext';
+import toast from 'react-hot-toast'; // <--- Імпорт
 
 interface LoginFormProps {
   onLoginSuccess?: () => void;
 }
 
 const LoginForm = ({ onLoginSuccess }: LoginFormProps) => {
-  const { login } = useAuth(); // <--- Беремо функцію з контексту
+  const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
 
     try {
+      // Виконуємо запит без toast.promise, бо login() сам робить редирект, 
+      // і тост може зникнути надто швидко або заважати
       const res = await api.post('/token/pair', { username, password });
       
-      // Магія! Ця функція сама збереже токени, візьме юзера і оновить Хедер
+      toast.success(`Вітаємо, ${username}!`); // <--- Приємне повідомлення
       await login(res.data); 
 
       if (onLoginSuccess) onLoginSuccess();
       
     } catch (err: any) {
       console.error(err);
-      setError('Невірний логін або пароль');
+      toast.error('Невірний логін або пароль'); // <--- Тост замість червоного тексту
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    // ... (твій JSX форми залишається тим самим, тільки onSubmit={handleSubmit})
-    // Якщо треба код верстки - скажи, я скину, але він такий самий
     <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm border border-gray-100">
       <h2 className="text-2xl font-extrabold text-center mb-6 text-black">Вхід</h2>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-         {/* Поля інпутів такі самі... */}
          <div>
             <label className="text-xs font-bold text-gray-500 uppercase">Логін</label>
             <input 
@@ -60,11 +58,9 @@ const LoginForm = ({ onLoginSuccess }: LoginFormProps) => {
             />
          </div>
 
-         {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
          <button 
             type="submit" disabled={loading}
-            className="bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition mt-2"
+            className="bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition mt-2 disabled:opacity-50"
          >
             {loading ? 'Вхід...' : 'Увійти'}
          </button>

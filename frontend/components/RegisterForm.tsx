@@ -3,51 +3,65 @@
 import { useState } from 'react';
 import api from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext'; // Імпорт контексту
+import toast from 'react-hot-toast'; // Імпорт тостів
 
 const RegisterForm = () => {
   const router = useRouter();
+  const { login } = useAuth(); // Беремо функцію входу з контексту
+  
   const [formData, setFormData] = useState({
     username: '',
     password: '',
     phone: '',
     role: 'driver' // 'driver' або 'mechanic'
   });
-  const [error, setError] = useState('');
+  
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+
+    // Валідація телефону (проста)
+    if (formData.phone.length < 10) {
+        toast.error("Введіть коректний номер телефону");
+        setLoading(false);
+        return;
+    }
 
     try {
-      // 1. Реєструємось
-      await api.post('/auth/register', {
-        ...formData,
-        telegram_id: null // Поки що не використовуємо
-      });
-// 1. Реєструємось
-      const regRes = await api.post('/auth/register', { ...formData, telegram_id: null });
-      
-      // 2. Логінимось
-      const tokenRes = await api.post('/token/pair', {
+      // 1. Спроба реєстрації
+      // toast.promise показує красивий статус завантаження
+      await toast.promise(
+        api.post('/auth/register', {
+            ...formData,
+            telegram_id: null
+        }),
+        {
+           loading: 'Створення акаунту...',
+           success: <b>Успішно! Входимо в систему...</b>,
+           error: (err) => {
+             // Якщо помилка бекенду - показуємо її текст
+             if (err.response?.data?.username) return "Цей логін вже зайнятий";
+             if (err.response?.data?.phone) return "Цей телефон вже використовується";
+             return "Помилка реєстрації. Спробуйте інший логін.";
+           },
+        }
+      );
+
+      // 2. Якщо реєстрація пройшла (помилки не було) - Автоматичний Вхід
+      const loginRes = await api.post('/token/pair', {
         username: formData.username,
         password: formData.password
       });
 
-      localStorage.setItem('access_token', tokenRes.data.access);
-      localStorage.setItem('refresh_token', tokenRes.data.refresh);
-      
-      // 3. Зберігаємо роль та ім'я (ми їх вже знаємо з форми)
-      localStorage.setItem('user_role', formData.role);
-      localStorage.setItem('user_name', formData.username);
+      // 3. Зберігаємо сесію через AuthContext (він сам перекине на потрібну сторінку)
+      await login(loginRes.data);
 
-      router.push('/');
-      
     } catch (err: any) {
-        console.error(err);
-        const msg = err.response?.data?.detail || 'Помилка реєстрації';
-        setError(msg);
+        console.error("Registration error:", err);
+        // Тут нічого не робимо, бо toast.promise вже показав помилку у блоці error
     } finally {
       setLoading(false);
     }
@@ -78,10 +92,10 @@ const RegisterForm = () => {
         </div>
 
         <div>
-          <label className="text-xs font-bold text-gray-500 uppercase">Логін</label>
+          <label className="text-xs font-bold text-gray-500 uppercase">Логін (Нікнейм)</label>
           <input 
             type="text" required
-            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none text-black"
+            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none transition"
             value={formData.username}
             onChange={e => setFormData({...formData, username: e.target.value})}
           />
@@ -92,7 +106,7 @@ const RegisterForm = () => {
           <input 
             type="tel" required
             placeholder="+380..."
-            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none text-black"
+            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none transition"
             value={formData.phone}
             onChange={e => setFormData({...formData, phone: e.target.value})}
           />
@@ -102,19 +116,17 @@ const RegisterForm = () => {
            <label className="text-xs font-bold text-gray-500 uppercase">Пароль</label>
            <input 
             type="password" required
-            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none text-blackпо"
+            className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-black outline-none transition"
             value={formData.password}
             onChange={e => setFormData({...formData, password: e.target.value})}
           />
         </div>
         
-        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-        
         <button 
           type="submit" disabled={loading}
-          className="bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition mt-2 text-lg"
+          className="bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-800 transition mt-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Створення...' : 'Створити акаунт'}
+          {loading ? 'Обробка...' : 'Створити акаунт'}
         </button>
       </form>
     </div>
