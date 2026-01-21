@@ -1,67 +1,83 @@
 from typing import List
-from ninja import Router
+from ninja import Router, UploadedFile, File
+from django.shortcuts import get_object_or_404
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import D
 from ninja_jwt.authentication import JWTAuth
-from core.models import ServiceStation
-from core.schemas import StationOutSchema, StationIn
+from core.models import ServiceStation, StationPhoto
+from core.schemas import StationOutSchema, PhotoOutSchema, StationIn
 
-# 1. Роутер для особистого кабінету (/my-station)
+# Роутер для власника СТО (приватний)
 station_router = Router()
 
-@station_router.get("/my-station", auth=JWTAuth(), response=StationOutSchema)
-def get_my_station(request):
-    station = ServiceStation.objects.filter(owner=request.auth).first()
-    if not station:
-        return 204, None
-    return {
-        "id": station.id, # type: ignore
-        "name": station.name,
-        "description": station.description,
-        "address": station.address,
-        "phone": station.phone,
-        "location": {"x": station.location.x, "y": station.location.y}
-    }
+# Роутер для пошуку та перегляду (публічний)
+geo_router = Router()
 
-@station_router.post("/my-station", auth=JWTAuth())
-def update_my_station(request, data: StationIn):
+@station_router.post("/my-station", auth=JWTAuth(), response=StationOutSchema)
+def create_or_update_station(request, data: StationIn):
     user = request.auth
-    new_location = Point(data.lng, data.lat)
     
+    # postgis Point потребує (lng, lat)
+    location = Point(data.lng, data.lat)
+
     station, created = ServiceStation.objects.update_or_create(
         owner=user,
         defaults={
             "name": data.name,
+            "description": data.description,
+            "services_list": data.services_list,
             "address": data.address,
             "phone": data.phone,
-            "location": new_location,
-            "description": getattr(data, 'description', '')
+            "location": location
         }
     )
-    
-    if user.role != 'mechanic':
-        user.role = 'mechanic'
-        user.save()
+    return station
 
+# --- КАБІНЕТ ВЛАСНИКА СТО ---
+
+
+@station_router.get("/my-station", auth=JWTAuth(), response=StationOutSchema)
+def get_my_station(request):
+    # .prefetch_related('photos') завантажує фото разом зі станцією
+    station = ServiceStation.objects.filter(owner=request.auth).prefetch_related('photos').first()
+    if not station:
+        return 204, None
+    return station
+
+@station_router.post("/my-station/photos", auth=JWTAuth(), response=PhotoOutSchema)
+def upload_station_photo(request, file: UploadedFile = File(...)):
+    user = request.auth
+    # Шукаємо станцію користувача
+    station = get_object_or_404(ServiceStation, owner=user)
+    
+    # Створюємо фото
+    photo = StationPhoto.objects.create(station=station, image=file)
+    return photo
+
+@station_router.delete("/my-station/photos/{photo_id}", auth=JWTAuth())
+def delete_station_photo(request, photo_id: int):
+    user = request.auth
+    # Видаляємо тільки якщо фото належить станції цього юзера
+    photo = get_object_or_404(StationPhoto, id=photo_id, station__owner=user)
+    photo.delete()
     return {"success": True}
 
-# 2. Роутер для гео-пошуку (/stations/nearby)
-geo_router = Router()
+
+# --- ПУБЛІЧНИЙ ПОШУК ---
 
 @geo_router.get("/nearby", response=List[StationOutSchema]) 
 def get_nearby_stations(request, lat: float, lng: float, radius_km: int = 20):
     user_location = Point(lng, lat)
+    
+    # Шукаємо станції в радіусі + завантажуємо їх фото
     stations = ServiceStation.objects.filter(
         location__distance_lte=(user_location, D(km=radius_km))
-    )
-    result = []
-    for s in stations:
-        result.append({
-            "id": s.id, # type: ignore
-            "name": s.name,
-            "description": s.description,
-            "address": s.address,
-            "phone": s.phone,
-            "location": {"x": s.location.x, "y": s.location.y}
-        })
-    return result
+    ).prefetch_related('photos')
+    
+    return stations
+
+@geo_router.get("/{station_id}", response=StationOutSchema)
+def get_station_details(request, station_id: int):
+    # Отримуємо детальну інфо про станцію + фото
+    station = get_object_or_404(ServiceStation.objects.prefetch_related('photos'), id=station_id)
+    return station

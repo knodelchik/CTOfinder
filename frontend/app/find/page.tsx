@@ -1,183 +1,273 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Header from '@/components/Header';
-import LoginForm from '@/components/LoginForm';
-import OfferModal from '@/components/OfferModal';
 import api from '@/lib/api';
-import { useEffect, useState } from 'react';
-import { Car, MapPin, Filter } from 'lucide-react';
+import { MapPin, Navigation, Clock, AlertTriangle, CheckCircle, Search, X, Camera } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
-interface RequestData {
-  id: number;
-  car_model: string;
-  description: string;
-  created_at: string;
-  location: { x: number; y: number };
+interface Attachment {
+    id: number;
+    url: string;
+    file_type: string;
 }
 
-export default function FindPage() {
-  const [requests, setRequests] = useState<RequestData[]>([]);
+interface RequestItem {
+    id: number;
+    car_model: string;
+    description: string;
+    created_at: string;
+    distance_km?: number;
+    location?: { x: number, y: number };
+    attachments: Attachment[]; // Додали фото
+}
+
+export default function MechanicFindPage() {
+  const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [needsLogin, setNeedsLogin] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedRequest, setSelectedRequest] = useState<RequestData | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'sos' | 'planned'>('all');
   
-  // 1. "Живий" радіус (для UI, оновлюється миттєво)
-  const [radius, setRadius] = useState(50);
-  
-  // 2. "Відкладений" радіус (для API, оновлюється із затримкою)
-  const [debouncedRadius, setDebouncedRadius] = useState(50);
+  // Модалка відповіді
+  const [selectedReq, setSelectedReq] = useState<RequestItem | null>(null);
+  const [price, setPrice] = useState('');
+  const [comment, setComment] = useState('');
 
-  // --- МАГІЯ DEBOUNCE ⏳ ---
+  // Модалка перегляду фото
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  
+  const router = useRouter();
+
   useEffect(() => {
-    // Встановлюємо таймер на 600 мс
-    const handler = setTimeout(() => {
-      setDebouncedRadius(radius);
-    }, 600);
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => fetchRequests(pos.coords.latitude, pos.coords.longitude), 
+            (err) => {
+                toast.error("Увімкніть геолокацію!");
+                fetchRequests(50.45, 30.52);
+            }
+        );
+    } else {
+         fetchRequests(50.45, 30.52);
+    }
+  }, []);
 
-    // Якщо користувач знову порухав повзунок до того, як пройшло 600 мс,
-    // ми скасовуємо попередній таймер.
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [radius]); // Спрацьовує при кожному русі повзунка
-
-
-  // Функція запиту (залежить тепер від debouncedRadius)
-  const fetchRequests = async () => {
+  const fetchRequests = async (lat: number, lng: number) => {
     try {
-      setLoading(true);
-      setError('');
-      
-      const res = await api.get('/requests/nearby', {
-        params: { 
-            lat: 50.4501, 
-            lng: 30.5234, 
-            radius_km: debouncedRadius // <--- Використовуємо відкладене значення
-        }
-      });
-      
-      setRequests(res.data);
-      setNeedsLogin(false);
-      
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        setNeedsLogin(true);
-      } else {
-        setError('Не вдалося з\'єднатися з сервером.');
-      }
+        const res = await api.get('/requests/nearby', { params: { lat, lng, radius_km: 100 } });
+        setRequests(res.data);
+    } catch (e) {
+        console.error(e);
+        toast.error("Не вдалося завантажити стрічку");
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      setLoading(false);
-      setNeedsLogin(true);
-      return; 
-    }
-    fetchRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedRadius]); // <--- Запит летить тільки коли "заспокоївся" радіус
+  const handleSendOffer = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedReq) return;
+
+      try {
+          await api.post('/offers', {
+              request_id: selectedReq.id,
+              price: Number(price),
+              comment: comment
+          });
+          toast.success("Пропозицію надіслано!");
+          setSelectedReq(null);
+          setPrice('');
+          setComment('');
+      } catch (error: any) {
+          if (error.response?.status === 403) {
+              if (confirm("Немає профілю СТО. Створити?")) router.push('/profile');
+          } else if (error.response?.status === 409) {
+              toast.error("Ви вже відгукнулись");
+          } else {
+              toast.error("Помилка сервера");
+          }
+      }
+  };
+
+  // Фільтрація заявок
+  const filteredRequests = requests.filter(req => {
+      const isSos = req.description.includes('[SOS]');
+      if (activeTab === 'sos') return isSos;
+      if (activeTab === 'planned') return !isSos;
+      return true;
+  });
 
   return (
-    <div className="min-h-screen bg-white font-sans text-gray-900">
+    <div className="min-h-screen bg-gray-50 pb-20">
       <Header />
       
-      {needsLogin && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
-          <LoginForm onLoginSuccess={() => fetchRequests()} />
+      <div className="max-w-2xl mx-auto p-4">
+        <h1 className="text-3xl font-extrabold text-black mb-4">Замовлення поруч</h1>
+
+        {/* ТАБИ */}
+        <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-gray-100 mb-6">
+            <button 
+                onClick={() => setActiveTab('all')}
+                className={`flex-1 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'all' ? 'bg-black text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+                Всі
+            </button>
+            <button 
+                onClick={() => setActiveTab('sos')}
+                className={`flex-1 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-1 ${activeTab === 'sos' ? 'bg-red-600 text-white shadow-md' : 'text-gray-500 hover:bg-red-50'}`}
+            >
+                <AlertTriangle size={16}/> SOS
+            </button>
+            <button 
+                onClick={() => setActiveTab('planned')}
+                className={`flex-1 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center gap-1 ${activeTab === 'planned' ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500 hover:bg-blue-50'}`}
+            >
+                <Clock size={16}/> Планові
+            </button>
         </div>
-      )}
 
-      {selectedRequest && (
-        <OfferModal 
-          requestId={selectedRequest.id}
-          carModel={selectedRequest.car_model}
-          onClose={() => setSelectedRequest(null)}
-          onSuccess={() => {
-            setSelectedRequest(null);
-            alert("✅ Пропозицію відправлено клієнту!");
-          }}
-        />
-      )}
-
-      <div className="max-w-3xl mx-auto py-8 px-4">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-            <h1 className="text-3xl font-extrabold text-black">Стрічка замовлень 🛠️</h1>
-            
-            <div className="bg-gray-100 p-4 rounded-2xl flex items-center gap-4 w-full md:w-auto shadow-sm">
-                <div className="flex items-center gap-2 font-bold text-gray-700 min-w-[120px]">
-                    <Filter size={20} />
-                    {/* Показуємо живий радіус, щоб було видно, що ми тягнемо */}
-                    <span>{radius} км</span>
+        {/* СПИСОК */}
+        <div className="space-y-5">
+            {!loading && filteredRequests.length === 0 && (
+                <div className="text-center py-12 text-gray-400">
+                    <Search size={48} className="mx-auto mb-3 opacity-20"/>
+                    <p className="font-medium">У цій категорії заявок немає.</p>
                 </div>
-                <input 
-                    type="range" 
-                    min="10" 
-                    max="1000"
-                    step="10"
-                    value={radius}
-                    // Оновлюємо тільки UI змінну
-                    onChange={(e) => setRadius(Number(e.target.value))}
-                    className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-black"
-                />
-            </div>
-        </div>
+            )}
 
-        {error && (
-          <div className="bg-red-50 text-red-800 p-4 rounded-xl mb-6 border border-red-200 font-medium">
-            ⚠️ {error}
-          </div>
-        )}
+            {filteredRequests.map(req => {
+                const isSos = req.description.includes('[SOS]');
+                // Показуємо локацію ТІЛЬКИ якщо це SOS і є координати
+                const showLocation = isSos && req.location && req.location.x && req.location.y;
 
-        {loading && <div className="text-center py-10 text-black font-medium animate-pulse">Оновлення стрічки...</div>}
+                return (
+                    <div key={req.id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                        
+                        {/* Хедер */}
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-3">
+                                <div className={`p-3 rounded-2xl ${isSos ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-blue-50 text-blue-600'}`}>
+                                    {isSos ? <AlertTriangle size={24}/> : <Clock size={24}/>}
+                                </div>
+                                <div>
+                                    <h3 className="font-extrabold text-lg text-black leading-tight">{req.car_model}</h3>
+                                    <div className="flex items-center gap-2 text-xs text-gray-400 font-bold mt-1">
+                                        <span>{new Date(req.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                        {req.distance_km && <span>• {req.distance_km.toFixed(1)} км від вас</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-        <div className="space-y-6">
-          {!loading && requests.length === 0 && !error && (
-             <div className="text-center py-12 text-gray-800 border-2 border-dashed border-gray-300 rounded-xl">
-               <p className="text-lg font-bold">В радіусі {debouncedRadius} км заявок немає</p>
-               <p className="text-gray-600">Спробуйте збільшити радіус пошуку</p>
-             </div>
-          )}
+                        {/* Опис */}
+                        <div className="text-sm font-medium text-gray-800 mb-4 bg-gray-50 p-4 rounded-2xl border border-gray-100 leading-relaxed">
+                            {req.description}
+                        </div>
 
-          {requests.map((req) => (
-            <div key={req.id} className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 hover:border-black transition group animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="flex justify-between items-start">
-                <div className="flex items-center gap-3">
-                    <div className="bg-black p-2 rounded-lg text-white">
-                        <Car size={24} />
+                        {/* ФОТОГРАФІЇ (Слайдер) */}
+                        {req.attachments && req.attachments.length > 0 && (
+                            <div className="mb-4">
+                                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                    {req.attachments.map(att => (
+                                        <div 
+                                            key={att.id} 
+                                            className="relative flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-gray-200 cursor-zoom-in group"
+                                            onClick={() => setFullScreenImage(att.url)}
+                                        >
+                                            <img src={att.url} className="w-full h-full object-cover transition group-hover:scale-110" />
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition"/>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Футер кнопок */}
+                        <div className="flex items-center gap-2 mt-2">
+                            <button 
+                                onClick={() => setSelectedReq(req)}
+                                className="flex-1 bg-black text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition shadow-lg shadow-gray-200 text-sm"
+                            >
+                                <CheckCircle size={18} /> Запропонувати
+                            </button>
+                            
+                            {/* Кнопка навігації */}
+                            {showLocation ? (
+                                <a 
+                                    href={`https://www.google.com/maps?q=${req.location!.y},${req.location!.x}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-3.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition border border-blue-100"
+                                    title="Маршрут до клієнта"
+                                >
+                                    <Navigation size={20} />
+                                </a>
+                            ) : (
+                                <div className="p-3.5 bg-gray-50 text-gray-300 rounded-xl cursor-not-allowed border border-gray-100" title="Клієнт приїде сам">
+                                    <Navigation size={20} />
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <h3 className="text-xl font-bold text-black">{req.car_model}</h3>
-                </div>
-                <span className="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide border border-green-200">
-                  Нове
-                </span>
-              </div>
-              
-              <p className="mt-4 text-gray-900 leading-relaxed text-lg font-medium">
-                {req.description}
-              </p>
-              
-              <div className="mt-6 flex items-center gap-6 text-sm text-gray-600 border-t border-gray-100 pt-4 font-medium">
-                 <div className="flex items-center gap-1">
-                    <MapPin size={18} className="text-black" />
-                    <span>Десь поруч</span>
-                 </div>
-                 
-                 <button 
-                    onClick={() => setSelectedRequest(req)}
-                    className="ml-auto bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-md active:scale-95 text-base"
-                 >
-                    Запропонувати ремонт
-                 </button>
-              </div>
-            </div>
-          ))}
+                );
+            })}
         </div>
       </div>
+
+      {/* МОДАЛКА ВІДПОВІДІ */}
+      {selectedReq && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+            <div className="bg-white w-full sm:rounded-3xl shadow-2xl sm:max-w-md animate-in slide-in-from-bottom duration-300 overflow-hidden">
+                <div className="p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-extrabold text-black">Відгук на заявку</h3>
+                        <button onClick={() => setSelectedReq(null)} className="p-2 hover:bg-gray-100 rounded-full"><X size={20}/></button>
+                    </div>
+                    
+                    <form onSubmit={handleSendOffer} className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Ціна (грн)</label>
+                            <input 
+                                type="number" required autoFocus
+                                className="w-full p-3 bg-gray-100 rounded-xl font-bold text-black text-lg focus:ring-2 ring-black outline-none"
+                                placeholder="0"
+                                value={price} onChange={e => setPrice(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Коментар</label>
+                            <textarea 
+                                required
+                                className="w-full p-3 bg-gray-100 rounded-xl font-medium text-black h-24 resize-none focus:ring-2 ring-black outline-none"
+                                placeholder={selectedReq.description.includes('[SOS]') ? "Виїжджаю, буду за 15 хв..." : "Можу прийняти вас сьогодні о 14:00..."}
+                                value={comment} onChange={e => setComment(e.target.value)}
+                            />
+                        </div>
+                        <button type="submit" className="w-full py-4 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition shadow-lg mt-2">
+                            Надіслати пропозицію
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* МОДАЛКА ФОТО (LIGHTBOX) */}
+      {fullScreenImage && (
+          <div 
+            className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur flex items-center justify-center p-4 animate-in fade-in cursor-zoom-out"
+            onClick={() => setFullScreenImage(null)}
+          >
+              <button className="absolute top-4 right-4 text-white p-2 bg-white/10 rounded-full hover:bg-white/20">
+                  <X size={32}/>
+              </button>
+              <img 
+                src={fullScreenImage} 
+                className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                onClick={(e) => e.stopPropagation()} // Щоб клік по фото не закривав його
+              />
+          </div>
+      )}
     </div>
   );
 }

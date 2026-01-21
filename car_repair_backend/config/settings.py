@@ -144,3 +144,8 @@ NINJA_JWT = {
 
 # --- CORS SETTINGS ---
 CORS_ALLOW_ALL_ORIGINS = True
+
+MEDIA_URL = '/media/'
+
+# Фізичний шлях папки на диску, де будуть зберігатися файли
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

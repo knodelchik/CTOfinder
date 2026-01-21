@@ -2,59 +2,62 @@
 
 import { useState, useEffect } from 'react';
 import Header from '@/components/Header';
-import { Wrench, Car as CarIcon } from 'lucide-react';
-import CarsTab from '@/components/profile/CarsTab';
-import StationTab from '@/components/profile/StationTab';
+import api from '@/lib/api';
+import { UserProfile } from './types';
+import { Loader2, Wrench, Car as CarIcon } from 'lucide-react';
+
+import Garage from '@/components/profile/Garage';
+import StationSettings from '@/components/profile/StationSettings';
 
 export default function ProfilePage() {
-  const [activeTab, setActiveTab] = useState<'cars' | 'station'>('cars');
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [activeTab, setActiveTab] = useState<'garage' | 'station'>('garage');
 
-  // Відновлення вкладки
   useEffect(() => {
-      const savedTab = localStorage.getItem('profileTab');
-      if (savedTab === 'station' || savedTab === 'cars') {
-          setActiveTab(savedTab);
-      }
+    api.get('/me')
+       .then(res => {
+           setUser(res.data);
+           if (res.data.role === 'mechanic') setActiveTab('station');
+       })
+       .catch(e => console.error(e))
+       .finally(() => setLoading(false));
   }, []);
 
-  const switchTab = (tab: 'cars' | 'station') => {
-      setActiveTab(tab);
-      localStorage.setItem('profileTab', tab);
-  };
+  if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-black"/></div>;
 
   return (
-    <div className="min-h-screen bg-white pb-20 text-black">
+    <div className="min-h-screen bg-gray-50 pb-20">
       <Header />
-      
-      <div className="max-w-4xl mx-auto p-4">
-        <h1 className="text-3xl font-extrabold mb-6 text-black">Кабінет користувача</h1>
-
-        {/* Перемикач вкладок */}
-        <div className="flex gap-4 mb-6 border-b border-gray-200">
-            <button 
-                onClick={() => switchTab('cars')} 
-                className={`pb-3 px-4 font-bold flex items-center gap-2 transition-colors ${
-                    activeTab === 'cars' 
-                    ? 'border-b-2 border-black text-black' 
-                    : 'text-gray-500 hover:text-black'
-                }`}
-            >
-                <CarIcon size={20}/> Мої авто
-            </button>
-            <button 
-                onClick={() => switchTab('station')} 
-                className={`pb-3 px-4 font-bold flex items-center gap-2 transition-colors ${
-                    activeTab === 'station' 
-                    ? 'border-b-2 border-black text-black' 
-                    : 'text-gray-500 hover:text-black'
-                }`}
-            >
-                <Wrench size={20}/> Моє СТО
-            </button>
+      <div className="max-w-3xl mx-auto p-4">
+        
+        <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-extrabold text-black">Мій Профіль</h1>
+            <div className="flex items-center gap-2">
+                <span className="font-bold text-gray-900 text-sm">{user?.username}</span>
+                <span className="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold uppercase">
+                    {user?.role === 'mechanic' ? 'Майстер' : 'Водій'}
+                </span>
+            </div>
         </div>
 
-        {/* Контент */}
-        {activeTab === 'cars' ? <CarsTab /> : <StationTab />}
+        {/* ТАБИ ДЛЯ МАЙСТРА */}
+        {user?.role === 'mechanic' && (
+            <div className="flex p-1 bg-gray-200 rounded-xl mb-8">
+                <button onClick={() => setActiveTab('station')} className={`flex-1 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition ${activeTab === 'station' ? 'bg-white shadow-sm text-black' : 'text-gray-500'}`}>
+                    <Wrench size={18}/> Налаштування СТО
+                </button>
+                <button onClick={() => setActiveTab('garage')} className={`flex-1 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition ${activeTab === 'garage' ? 'bg-white shadow-sm text-black' : 'text-gray-500'}`}>
+                    <CarIcon size={18}/> Мій Гараж
+                </button>
+            </div>
+        )}
+
+        {/* ВІДОБРАЖЕННЯ КОМПОНЕНТІВ */}
+        {activeTab === 'garage' && <Garage />}
+        
+        {activeTab === 'station' && user?.role === 'mechanic' && <StationSettings />}
+
       </div>
     </div>
   );

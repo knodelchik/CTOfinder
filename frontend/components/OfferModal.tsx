@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import api from '@/lib/api';
+import toast from 'react-hot-toast'; // Використовуємо тости для єдиного стилю
+import { X, Loader2 } from 'lucide-react'; // Додав іконки для краси
 
 interface OfferModalProps {
   requestId: number;
@@ -25,70 +27,87 @@ const OfferModal = ({ requestId, carModel, onClose, onSuccess }: OfferModalProps
         price: parseFloat(price),
         comment: comment
       });
-      onSuccess();
-    } catch (error) {
+      
+      toast.success('Пропозицію надіслано!');
+      onSuccess(); // Закриваємо модалку і оновлюємо список
+      onClose();
+
+    } catch (error: any) {
       console.error(error);
-      alert('Помилка при відправці.');
+      
+      // Обробка специфічної помилки від бекенду (якщо немає СТО)
+      if (error.response?.status === 403) {
+        toast.error("Спочатку створіть профіль СТО в налаштуваннях!", { duration: 5000 });
+      } else if (error.response?.status === 409) {
+        toast.error("Ви вже відгукнулися на цю заявку.");
+      } else {
+        toast.error('Помилка при відправці. Спробуйте пізніше.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div className="fixed inset-0 z-[3000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100">
         
-        {/* Шапка стала контрастнішою */}
-        <div className="bg-gray-100 px-6 py-5 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="font-bold text-xl text-black">Ремонт {carModel}</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-black text-2xl transition">✕</button>
+        {/* Шапка */}
+        <div className="bg-gray-50 px-6 py-5 border-b border-gray-100 flex justify-between items-center">
+          <div>
+              <h3 className="font-extrabold text-xl text-black">Ремонт авто</h3>
+              <p className="text-sm text-gray-500 font-bold">{carModel}</p>
+          </div>
+          <button onClick={onClose} className="bg-gray-200 hover:bg-gray-300 p-2 rounded-full transition text-gray-700">
+            <X size={20}/>
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 flex flex-col gap-6">
+        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-5">
           <div>
-            <label className="block text-base font-bold text-black mb-2">
+            <label className="block text-sm font-bold text-gray-700 mb-2 uppercase">
               Вартість роботи (грн)
             </label>
             <input 
               type="number" 
               required
-              placeholder="Наприклад: 500"
-              className="w-full p-4 border-2 border-gray-300 rounded-xl text-xl font-bold text-black focus:border-black focus:outline-none placeholder:text-gray-400"
+              placeholder="500"
+              className="w-full p-4 border border-gray-300 rounded-xl text-xl font-bold text-black focus:ring-2 focus:ring-black focus:border-transparent outline-none placeholder:text-gray-300 transition"
               value={price}
               onChange={e => setPrice(e.target.value)}
             />
           </div>
 
           <div>
-            <label className="block text-base font-bold text-black mb-2">
-              Повідомлення клієнту
+            <label className="block text-sm font-bold text-gray-700 mb-2 uppercase">
+              Коментар для водія
             </label>
-            <p className="text-sm text-gray-600 mb-2">
-              Напишіть, що входить у ціну, та <strong>адресу вашого СТО</strong>, якщо клієнт має приїхати сам.
+            <p className="text-xs text-gray-500 mb-2">
+              Ваша адреса СТО підтягнеться автоматично. Тут вкажіть деталі по часу або запчастинам.
             </p>
             <textarea 
               required
-              placeholder="Привіт! Можу прийняти вас сьогодні. Приїжджайте на вул. Механізаторів 12, бокс 5..."
-              className="w-full p-4 border-2 border-gray-300 rounded-xl h-32 resize-none text-black text-base focus:border-black focus:outline-none placeholder:text-gray-400 leading-relaxed"
+              placeholder="Добрий день! Готовий взяти в роботу. Запчастини є в наявності..."
+              className="w-full p-4 border border-gray-300 rounded-xl h-32 resize-none text-black font-medium focus:ring-2 focus:ring-black focus:border-transparent outline-none placeholder:text-gray-400 leading-relaxed transition"
               value={comment}
               onChange={e => setComment(e.target.value)}
             />
           </div>
 
-          <div className="flex gap-4 mt-4">
+          <div className="flex gap-3 mt-2">
             <button 
               type="button" 
               onClick={onClose}
-              className="flex-1 py-4 text-gray-700 font-bold hover:bg-gray-200 rounded-xl transition text-lg"
+              className="flex-1 py-4 text-black font-bold bg-gray-100 hover:bg-gray-200 rounded-xl transition"
             >
               Скасувати
             </button>
             <button 
               type="submit" 
               disabled={loading}
-              className="flex-1 py-4 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition disabled:opacity-70 text-lg shadow-lg"
+              className="flex-1 py-4 bg-black text-white font-bold rounded-xl hover:bg-gray-800 transition disabled:opacity-70 shadow-lg shadow-gray-200 flex justify-center items-center gap-2"
             >
-              {loading ? 'Відправка...' : 'Надіслати'}
+              {loading ? <Loader2 className="animate-spin"/> : 'Надіслати пропозицію'}
             </button>
           </div>
         </form>

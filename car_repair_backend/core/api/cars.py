@@ -29,7 +29,12 @@ def delete_car(request, car_id: int):
 
 @router.get("/lookup-car", auth=JWTAuth())
 def lookup_car_by_plate(request, plate: str):
+    # Викликаємо РЕАЛЬНИЙ парсер
     data, error = parse_unda_car(plate)
+    
     if error:
+        # Повертаємо помилку, яку фронтенд покаже в toast.error
         return {"error": error}
+    
+    # Повертаємо знайдені дані
     return data

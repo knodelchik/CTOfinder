@@ -1,35 +1,75 @@
-
 from ninja import Schema
-from typing import Optional, List
+from typing import List, Optional
 from datetime import datetime
+
+# ==========================================
+# 📸 СХЕМИ ДЛЯ МЕДІА (ФОТО ТА ФАЙЛИ)
+# ==========================================
+# backend/core/schemas.py
+
+# ... імпорти
+
+# Вкажи тут адресу свого бекенду
+BACKEND_URL = "http://127.0.0.1:8000"
+
+class PhotoOutSchema(Schema):
+    id: int
+    url: str
+
+    @staticmethod
+    def resolve_url(obj):
+        if obj.image:
+            # Додаємо домен до шляху
+            return f"{BACKEND_URL}{obj.image.url}"
+        return None
+
+class AttachmentOutSchema(Schema):
+    id: int
+    url: str
+    file_type: str
+
+    @staticmethod
+    def resolve_url(obj):
+        if obj.file:
+            return f"{BACKEND_URL}{obj.file.url}"
+        return None
+
+# ... решта коду
+
+# ==========================================
+# 🚗 СХЕМИ ДЛЯ АВТОМОБІЛІВ
+# ==========================================
 
 class CarIn(Schema):
     license_plate: str
     brand_model: str
-    year: int = None # type: ignore
-    vin: str = None# type: ignore
-    color: str = None # type: ignore
-    type: str = None # type: ignore
-    body: str = None # type: ignore
-    fuel: str = None # type: ignore
-    engine_volume: str = None # type: ignore
-    weight: str = None # type: ignore
+    year: Optional[int] = None
+    vin: Optional[str] = None
+    color: Optional[str] = None
+    type: Optional[str] = None
+    body: Optional[str] = None
+    fuel: Optional[str] = None
+    engine_volume: Optional[str] = None
+    weight: Optional[str] = None
 
 class CarOut(Schema):
     id: int
     license_plate: str
     brand_model: str
-    year: int = None # type: ignore
-    vin: str = None # type: ignore
-    color: str = None # type: ignore
-    type: str = None # type: ignore
-    body: str = None # type: ignore
-    fuel: str = None # type: ignore
-    engine_volume: str = None # type: ignore
-    weight: str = None # type: ignore
+    year: Optional[int] = None
+    vin: Optional[str] = None
+    color: Optional[str] = None
+    type: Optional[str] = None
+    body: Optional[str] = None
+    fuel: Optional[str] = None
+    engine_volume: Optional[str] = None
+    weight: Optional[str] = None
 
-# ... (StationIn, StationOut залишаються без змін)
-# Що ми чекаємо від фронтенда при реєстрації
+
+# ==========================================
+# 🛠 СХЕМИ ДЛЯ СТО (STATIONS)
+# ==========================================
+
 class StationIn(Schema):
     name: str
     address: str
@@ -37,65 +77,101 @@ class StationIn(Schema):
     lat: float
     lng: float
     description: str = ""
-class UserRegisterSchema(Schema):
-    username: str
-    password: str
-    phone: str
-    role: str  # 'client' або 'mechanic'
-    telegram_id: Optional[str] = None # Це поле необов'язкове
+    services_list: str = ""
 
-# Що ми віддаємо назад (щоб не світити пароль)
-class UserOutSchema(Schema):
+# backend/core/schemas.py
+
+# ... (інші схеми залишаються без змін)
+
+class StationOutSchema(Schema):
     id: int
-    username: str
-    role: str
-    phone: str = None # type: ignore
-
-    # ... (попередні імпорти)
-
-# 1. Схема для створення заявки (Вхідні дані)
-class RequestCreateSchema(Schema):
-    car_id: int
+    name: str
     description: str
-    category_id: int # ID категорії (напр. 1 - Ходова)
-    lat: float       # Широта (напр. 50.45)
-    lng: float       # Довгота (напр. 30.52)
+    services_list: Optional[str] = None
+    rating: float
+    
+    address: str
+    phone: str
+    location: Optional[dict] = None # Робимо Optional, про всяк випадок
+    
+    photos: List[PhotoOutSchema] = [] 
 
-# 2. Схема для відповіді (Вихідні дані)
+    # 👇 ОСЬ ЦЕ ВИПРАВЛЯЄ ПОМИЛКУ 500
+    @staticmethod
+    def resolve_location(obj):
+        # Якщо у об'єкта є location (це Point), перетворюємо його вручну
+        if obj.location:
+            return {"x": obj.location.x, "y": obj.location.y}
+        return None
+
+# ==========================================
+# 📋 СХЕМИ ДЛЯ ЗАЯВОК (REQUESTS)
+# ==========================================
+
+class RequestCreateSchema(Schema):
+    category_id: int
+    car_model: str # Передаємо рядок, наприклад "BMW X5 (AA1234AA)"
+    description: str
+    lat: float
+    lng: float
+
+
 class RequestOutSchema(Schema):
     id: int
     car_model: str
     description: str
     status: str
-    created_at: datetime  # Треба імпортувати datetime!
-    # Ми не віддаємо Point об'єкт напряму, бо JSON його не розуміє.
-    # Фронт зазвичай сам знає, де він знаходиться.
+    created_at: datetime
+    location: dict
+    
+    # Вкладення (фото/відео поломки)
+    attachments: List[AttachmentOutSchema] = []
 
-    # ... (твої попередні схеми)
+    # 👇 ДОДАЙТЕ ЦЕЙ МЕТОД 👇
+    @staticmethod
+    def resolve_location(obj):
+        # Перетворюємо об'єкт Point (GeoDjango) у звичайний dict для JSON
+        if obj.location:
+            return {"x": obj.location.x, "y": obj.location.y}
+        return None
+# ==========================================
+# 🤝 СХЕМИ ДЛЯ ПРОПОЗИЦІЙ (OFFERS)
+# ==========================================
 
-# 1. Майстер створює пропозицію
 class OfferCreateSchema(Schema):
     request_id: int
     price: float
     comment: str
 
-# 2. Водій бачить пропозицію
 class OfferOutSchema(Schema):
     id: int
     mechanic_name: str
-    mechanic_phone: str = None  # type: ignore # <--- ДОДАЙ ЦЕ
+    mechanic_phone: Optional[str] = None
     price: float
     comment: str
     is_accepted: bool
-    station_address: str = None # type: ignore
-    distance_km: float = None  # type: ignore
+    
+    # Геодані СТО майстра
+    station_address: Optional[str] = None
+    distance_km: Optional[float] = None
+    station_lat: Optional[float] = None
+    station_lng: Optional[float] = None
 
-# ... твій попередній код ...
 
-class StationOutSchema(Schema):
-    id: int
-    name: str
-    description: str = None  # type: ignore # Може бути пустим
-    address: str
+# ==========================================
+# 👤 СХЕМИ ДЛЯ КОРИСТУВАЧІВ (AUTH)
+# ==========================================
+
+class UserRegisterSchema(Schema):
+    username: str
+    password: str
     phone: str
-    location: dict  # Ми повернемо це як {x: 30.5, y: 50.4}
+    role: str  # 'client' або 'mechanic'
+    telegram_id: Optional[str] = None
+
+class UserOutSchema(Schema):
+    id: int
+    username: str
+    role: str
+    phone: Optional[str] = None
+    telegram_id: Optional[str] = None
