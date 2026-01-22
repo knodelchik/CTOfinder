@@ -3,18 +3,16 @@ import os
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.contrib.gis.db.models import PointField  # Для PostGIS
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 # --- HELPER FUNCTIONS ---
 
 def station_photo_path(instance, filename):
-    # Генерує шлях: station_photos/ID_СТО/унікальне_імя.jpg
     ext = filename.split('.')[-1]
     filename = f"{uuid.uuid4()}.{ext}"
-    # instance.station.id може ще не існувати при створенні, тому краще owner.id
     return os.path.join('station_photos', str(instance.station.owner.id), filename)
 
 def request_attachment_path(instance, filename):
-    # Генерує шлях: request_attachments/ID_Клієнта/унікальне_імя.jpg
     ext = filename.split('.')[-1]
     filename = f"{uuid.uuid4()}.{ext}"
     return os.path.join('request_attachments', str(instance.request.client.id), filename)
@@ -38,14 +36,28 @@ class User(AbstractUser):
 # 2. КАТЕГОРІЇ ПОСЛУГ
 class ServiceCategory(models.Model):
     name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True) 
+    slug = models.SlugField(max_length=100, unique=True, blank=True)
+    
+    # Поле для вкладеності (Дерево)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
+    
+    icon = models.CharField(max_length=50, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            # Генеруємо slug, якщо немає
+            base_slug = slugify(self.name) if self.name else 'cat'
+            self.slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.parent:
+            return f"{self.parent} -> {self.name}"
         return self.name
 
 # 3. СТО (SERVICE STATION)
 class ServiceStation(models.Model):
-    # Використовуємо OneToOne, бо логіка "Мій профіль СТО" передбачає одне СТО на акаунт
     owner = models.OneToOneField(User, on_delete=models.CASCADE, related_name='station')
     
     name = models.CharField(max_length=255, verbose_name="Назва СТО")
@@ -53,10 +65,10 @@ class ServiceStation(models.Model):
     services_list = models.TextField(blank=True, help_text="Перелік послуг через кому")
     
     address = models.CharField(max_length=255, verbose_name="Адреса словами")
-    location = PointField(srid=4326, blank=True, null=True) # Точка на карті
+    location = PointField(srid=4326, blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True)
     
-    rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0) # type: ignore
+    rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -102,17 +114,17 @@ class Request(models.Model):
     car_model = models.CharField(max_length=255)
     description = models.TextField()
     
-    location = PointField(srid=4326) # Геолокація поломки
+    location = PointField(srid=4326)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Request {self.id} by {self.client}" # type: ignore
+        return f"Request {self.id} by {self.client}"
 
 class RequestAttachment(models.Model):
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name='attachments')
     file = models.FileField(upload_to=request_attachment_path)
-    file_type = models.CharField(max_length=20, default='image') # image / video
+    file_type = models.CharField(max_length=20, default='image')
     created_at = models.DateTimeField(auto_now_add=True)
 
 # 6. ОФЕРИ (OFFERS)
@@ -125,3 +137,29 @@ class Offer(models.Model):
     
     is_accepted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+# 7. ВІДГУКИ ПРО СТО
+class Review(models.Model):
+    request = models.OneToOneField(Request, on_delete=models.CASCADE, related_name='review')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='left_reviews')
+    mechanic = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_reviews')
+    
+    rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comment = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.rating}★ від {self.author.username}"
+
+# 8. ВІДГУКИ ПРО КЛІЄНТІВ
+class ClientReview(models.Model):
+    request = models.OneToOneField(Request, on_delete=models.CASCADE, related_name='client_review')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='left_client_reviews') # Майстер
+    client = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_client_reviews') # Клієнт
+    
+    rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comment = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.rating}★ для клієнта {self.client.username}"

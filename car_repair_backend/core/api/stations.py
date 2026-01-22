@@ -78,6 +78,19 @@ def get_nearby_stations(request, lat: float, lng: float, radius_km: int = 20):
 
 @geo_router.get("/{station_id}", response=StationOutSchema)
 def get_station_details(request, station_id: int):
+    # Додаємо prefetch_related('owner__received_reviews')
+    # owner__received_reviews - це зв'язок від User до Review (related_name='received_reviews')
+    
+    station = get_object_or_404(ServiceStation.objects.prefetch_related('photos'), id=station_id)
+    
+    # Мануально дістаємо відгуки про власника цього СТО
+    # Бо модель Review прив'язана до User (mechanic), а не до Station напряму
+    reviews = station.owner.received_reviews.all().order_by('-created_at')
+    
+    # Ninja Schema сама схаває цей список, якщо імена полів співпадають
+    station.reviews = list(reviews) 
+    
+    return station
     # Отримуємо детальну інфо про станцію + фото
     station = get_object_or_404(ServiceStation.objects.prefetch_related('photos'), id=station_id)
     return station

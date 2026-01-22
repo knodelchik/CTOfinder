@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Car, User, LogOut, ChevronDown, Wrench, Map } from 'lucide-react';
+import { Car, User, LogOut, ChevronDown, Wrench, Map, Briefcase, FileText } from 'lucide-react'; // Додали іконки
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -12,13 +12,8 @@ const Header = () => {
   const pathname = usePathname();
 
   // --- ЛОГІКА ПЕРЕМИКАННЯ ---
-  // 1. Визначаємо, де ми зараз (у зоні водія чи ні)
   const isDriverSection = pathname?.startsWith('/driver');
-
-  // 2. Куди вести при кліку
   const switchTarget = isDriverSection ? '/find' : '/driver/map';
-  
-  // 3. Текст кнопки
   const switchLabel = isDriverSection ? 'Кабінет Майстра' : 'Карта Водія';
   const SwitchIcon = isDriverSection ? Wrench : Map;
 
@@ -43,8 +38,8 @@ const Header = () => {
                         href={switchTarget}
                         className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shadow-lg ${
                             isDriverSection 
-                                ? 'bg-black text-white hover:bg-gray-800' // Чорна кнопка (йти до Майстра)
-                                : 'bg-blue-600 text-white hover:bg-blue-700' // Синя кнопка (йти до Водія)
+                                ? 'bg-black text-white hover:bg-gray-800' // Чорна
+                                : 'bg-blue-600 text-white hover:bg-blue-700' // Синя
                         }`}
                     >
                         <SwitchIcon size={14} />
@@ -83,10 +78,21 @@ const Header = () => {
 
                             <div className="p-2 space-y-1">
                                 <Link href="/profile" className="px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-100 rounded-xl flex items-center gap-3 transition" onClick={() => setIsMenuOpen(false)}>
-                                    <User size={18} /> Профіль (Авто/СТО)
+                                    <User size={18} /> Профіль
                                 </Link>
 
-                                {/* Мобільний перемикач (дублюємо тут для телефонів, ТІЛЬКИ ДЛЯ МАЙСТРІВ) */}
+                                {/* 👇 НОВІ КНОПКИ НАВІГАЦІЇ 👇 */}
+                                {user.role === 'mechanic' ? (
+                                    <Link href="/my-jobs" className="px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-100 rounded-xl flex items-center gap-3 transition" onClick={() => setIsMenuOpen(false)}>
+                                        <Briefcase size={18} /> Мої роботи
+                                    </Link>
+                                ) : (
+                                    <Link href="/driver/requests" className="px-4 py-2.5 text-sm font-bold text-gray-700 hover:bg-gray-100 rounded-xl flex items-center gap-3 transition" onClick={() => setIsMenuOpen(false)}>
+                                        <FileText size={18} /> Мої заявки
+                                    </Link>
+                                )}
+
+                                {/* Мобільний перемикач */}
                                 {user.role === 'mechanic' && (
                                     <Link 
                                         href={switchTarget} 

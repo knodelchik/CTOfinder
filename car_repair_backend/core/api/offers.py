@@ -1,5 +1,3 @@
-# backend/core/api/offers.py
-
 from typing import List, Optional
 from ninja import Router, Schema
 from ninja_jwt.authentication import JWTAuth
@@ -16,33 +14,32 @@ class OfferCreateSchema(Schema):
 
 # --- СХЕМА ДЛЯ ВІДОБРАЖЕННЯ (My Jobs) ---
 class MechanicJobSchema(Schema):
-    id: int              # Це ID заявки (щоб фронтенд міг робити /finish/{id})
-    offer_id: int        # Це ID самого оферу (унікальний ключ)
+    id: int              
+    offer_id: int        
     car_model: str
     description: str
     price: float
-    status: str          # pending / accepted / rejected
+    status: str          
     client_name: str
     client_phone: Optional[str] = None
     request_status: str 
     location: Optional[dict] = None
+    
+    # 👇 Це поле було, але воно завжди було False
+    has_client_review: bool = False
 
-    # 👇 1. Мапимо ID заявки
     @staticmethod
     def resolve_id(obj):
         return obj.request.id
 
-    # 👇 2. Мапимо ID оферу (ВИПРАВЛЕНО ПОМИЛКУ "Field required offer_id")
     @staticmethod
     def resolve_offer_id(obj):
         return obj.id
 
-    # 👇 3. Мапимо статус (ВИПРАВЛЕНО ПОМИЛКУ "Field required status")
     @staticmethod
     def resolve_status(obj):
         if obj.is_accepted:
             return 'accepted'
-        # Якщо заявка вже не нова (хтось інший взяв або завершена), а цей офер не прийнятий -> rejected
         if obj.request.status != 'new':
             return 'rejected'
         return 'pending'
@@ -73,20 +70,24 @@ class MechanicJobSchema(Schema):
             return {"x": obj.request.location.x, "y": obj.request.location.y}
         return None
 
+    # 👇 ДОДАВ ЦЕЙ ВАЖЛИВИЙ МЕТОД 👇
+    @staticmethod
+    def resolve_has_client_review(obj):
+        # Перевіряємо, чи є у заявки (request) пов'язаний client_review
+        return hasattr(obj.request, 'client_review')
+
 # --- ЕНДПОІНТИ ---
 
 @router.post("/", auth=JWTAuth())
 def create_offer(request, data: OfferCreateSchema):
     user = request.auth
     
-    # Перевірка на СТО
     if not hasattr(user, 'service_station'):
         from ninja.errors import HttpError
         raise HttpError(403, "Створіть профіль СТО перед тим, як брати замовлення")
 
     req_obj = get_object_or_404(Request, id=data.request_id)
     
-    # Перевірка на дублікат
     if Offer.objects.filter(request=req_obj, mechanic=user).exists():
         from ninja.errors import HttpError
         raise HttpError(409, "Ви вже відгукнулись на цю заявку")
@@ -102,8 +103,7 @@ def create_offer(request, data: OfferCreateSchema):
 @router.get("/mechanic/my-offers", auth=JWTAuth(), response=List[MechanicJobSchema])
 def get_mechanic_offers(request):
     user = request.auth
-    # Беремо офери поточного майстра
-    # select_related оптимізує запити до БД
+    # Додаємо select_related('request__client_review'), щоб не робити зайвих запитів до БД
     offers = Offer.objects.filter(mechanic=user)\
         .select_related('request', 'request__client')\
         .order_by('-created_at')
@@ -112,7 +112,6 @@ def get_mechanic_offers(request):
 @router.post("/{offer_id}/accept", auth=JWTAuth())
 def accept_offer(request, offer_id: int):
     offer = get_object_or_404(Offer, id=offer_id)
-    # Тільки власник заявки може прийняти
     if offer.request.client != request.auth:
          from ninja.errors import HttpError
          raise HttpError(403, "Це не ваша заявка")
@@ -120,7 +119,6 @@ def accept_offer(request, offer_id: int):
     offer.is_accepted = True
     offer.save()
     
-    # Оновлюємо статус заявки
     offer.request.status = 'in_progress'
     offer.request.save()
     
