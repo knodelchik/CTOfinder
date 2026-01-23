@@ -2,28 +2,29 @@
 
 import api from '@/lib/api';
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { StationData } from '@/components/StationsMap';
-import { AlertTriangle, Phone, CheckCircle, RefreshCw, Wrench, MapPin, Search, CheckSquare } from 'lucide-react';
+import { AlertTriangle, Wrench, Search, ArrowRight, Loader2, RefreshCw, MapPin, Navigation } from 'lucide-react';
 import CreateRequestModal from '@/components/CreateRequestModal';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
 const StationsMap = dynamic(() => import('@/components/StationsMap'), { 
   ssr: false, 
-  loading: () => <div className="h-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold">Завантаження карти...</div>
+  loading: () => <div className="h-full bg-gray-100 flex items-center justify-center text-gray-400 font-bold flex-col gap-2"><Loader2 className="animate-spin text-black"/>Завантаження карти...</div>
 });
 
+// Розширений інтерфейс оферу з координатами
 interface Offer {
-  id: number;
-  mechanic_name: string;
-  mechanic_phone: string;
-  price: number;
-  comment: string;
-  is_accepted: boolean;
-  station_address?: string;
-  distance_km?: number;
-  station_lat?: number;
-  station_lng?: number;
+    id: number;
+    mechanic_name: string;
+    price: number;
+    is_accepted: boolean;
+    distance_km?: number;
+    station_lat?: number;
+    station_lng?: number;
+    station_address?: string;
+    mechanic_phone?: string;
 }
 
 interface ActiveRequest {
@@ -35,17 +36,18 @@ interface ActiveRequest {
 }
 
 export default function DriverMapPage() {
+  const router = useRouter();
   const [stations, setStations] = useState<StationData[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<number | null>(null);
-  const [highlightedStation, setHighlightedStation] = useState<StationData | null>(null);
-
+  const [highlightedStation, setHighlightedStation] = useState<StationData | null>(null); // 🔥 Для підсвітки майстра
   const [currentLocation, setCurrentLocation] = useState<{x: number, y: number} | null>(null);
 
   const [activeRequest, setActiveRequest] = useState<ActiveRequest | null>(null);
-  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]); // 🔥 Зберігаємо самі офери
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'sos' | 'planned'>('sos');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -57,15 +59,12 @@ export default function DriverMapPage() {
             },
             (err) => {
                 console.error("Geo error:", err);
-                toast("Геолокація недоступна.", { icon: '🌍' });
                 fetchStations(50.45, 30.52); 
             }
         );
     }
     checkMyRequests();
   }, []);
-
-  // ЦЕЙ БЛОК ПОВНІСТЮ ВИДАЛЕНО, ЩОБ ПРИБРАТИ НЕСКІНЧЕННІ ЗАПИТИ КОЖНІ 10 СЕКУНД
 
   const fetchStations = async (lat: number, lng: number) => {
     try {
@@ -75,73 +74,46 @@ export default function DriverMapPage() {
   };
 
   const checkMyRequests = async () => {
-    setIsLoading(true);
+    setIsRefreshing(true);
     try {
       const res = await api.get('/my-requests');
-      const last = res.data[0];
+      const active = res.data.find((r: any) => r.status !== 'done' && r.status !== 'canceled');
       
-      if (last && last.status !== 'done' && last.status !== 'canceled') {
-        setActiveRequest(last);
-        await fetchOffers(last.id); // Завантажуємо один раз при знаходженні
+      if (active) {
+        setActiveRequest(active);
+        const offersRes = await api.get(`/requests/${active.id}/offers`);
+        setOffers(offersRes.data || []);
       } else {
         setActiveRequest(null);
         setOffers([]);
         setHighlightedStation(null);
       }
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
-  };
-
-  const fetchOffers = async (reqId: number) => {
-    setIsLoading(true); // Показуємо спіннер під час оновлення вручну
-    try {
-      const res = await api.get(`/requests/${reqId}/offers`);
-      setOffers(res.data);
-    } catch (e) { console.error(e); }
-    finally { setIsLoading(false); }
-  };
-
-  const handleAcceptOffer = async (offerId: number) => {
-    if(!confirm("Прийняти цю ціну і викликати майстра?")) return;
-    try {
-        await api.post(`/offers/${offerId}/accept`);
-        toast.success("Майстер підтверджений!");
-        if (activeRequest) fetchOffers(activeRequest.id);
-    } catch (e) { toast.error("Помилка при прийнятті"); }
-  };
-
-  const handleFinishOrder = async () => {
-    if (!activeRequest) return;
-    if (!confirm("Підтвердіть, що роботу виконано і можна закривати замовлення.")) return;
-
-    try {
-        await api.post(`/requests/${activeRequest.id}/finish`);
-        toast.success("Дякуємо! Замовлення закрито.");
-        setActiveRequest(null);
-        setOffers([]);
-        setHighlightedStation(null);
-    } catch (e) {
-        toast.error("Помилка при завершенні.");
+    } catch (e) { 
+        console.error(e); 
+    } finally {
+        setIsRefreshing(false);
     }
   };
 
-  const handleShowOnMap = (offer: Offer) => {
+  // 🔥 Функція показу майстра на карті
+  const showMechanicOnMap = (offer: Offer) => {
       if (offer.station_lat && offer.station_lng) {
-          const tempStation: StationData = {
-              id: -offer.id,
+          // Створюємо тимчасовий об'єкт станції для відображення
+          const mechanicStation: StationData = {
+              id: -offer.id, // Від'ємний ID, щоб не конфліктувати з реальними станціями
               name: `Майстер: ${offer.mechanic_name}`,
-              description: offer.comment,
-              address: offer.station_address || "Адреса не вказана",
-              phone: offer.mechanic_phone,
+              address: offer.station_address || "Локація майстра",
+              phone: offer.mechanic_phone || "",
+              description: `Пропозиція: ${offer.price} грн`,
               location: {
                   x: offer.station_lng,
                   y: offer.station_lat
               }
           };
-          setHighlightedStation(tempStation);
-          setSelectedStationId(null); 
+          setHighlightedStation(mechanicStation); // Це передасться в карту і відцентрує її
+          toast.success(`Показую майстра ${offer.mechanic_name}`);
       } else {
-          toast.error("У цього майстра немає координат");
+          toast.error("У цього майстра немає координат СТО");
       }
   };
 
@@ -149,6 +121,15 @@ export default function DriverMapPage() {
       setModalType(type);
       setIsModalOpen(true);
   };
+
+  const handleRequestCreated = () => {
+      setIsModalOpen(false);
+      checkMyRequests(); 
+      toast.success("Заявку створено!");
+  };
+
+  const isSosRequest = activeRequest?.description.includes('[SOS]') || false;
+  const acceptedOffer = offers.find(o => o.is_accepted);
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col md:flex-row bg-white overflow-hidden text-black">
@@ -158,18 +139,18 @@ export default function DriverMapPage() {
         <div className="p-4 border-b bg-gray-50">
             <h2 className="text-xl font-extrabold text-black">Найближчі СТО</h2>
             <div className="relative mt-2">
-                <input type="text" placeholder="Пошук..." className="w-full pl-9 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-black text-black"/>
-                <Search size={16} className="absolute left-3 top-2.5 text-gray-400"/>
+                <input type="text" placeholder="Пошук..." className="w-full pl-9 pr-4 py-3 bg-white border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-black text-black shadow-sm"/>
+                <Search size={16} className="absolute left-3 top-3.5 text-gray-400"/>
             </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
             {stations.map(s => (
                 <div 
                     key={s.id}
                     onClick={() => {
                         setSelectedStationId(s.id);
-                        setHighlightedStation(null);
+                        setHighlightedStation(null); // Скидаємо підсвітку майстра, якщо клікнули на просте СТО
                     }}
                     className={`p-4 rounded-xl border cursor-pointer transition hover:shadow-md ${
                         selectedStationId === s.id ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-gray-100'
@@ -177,16 +158,9 @@ export default function DriverMapPage() {
                 >
                     <div className="flex justify-between items-start">
                         <h3 className="font-bold text-black">{s.name}</h3>
-                        <span className="text-xs bg-gray-100 px-2 py-1 rounded font-bold text-gray-600 uppercase">СТО</span>
+                        <span className="text-[10px] bg-gray-100 px-2 py-1 rounded font-bold text-gray-500 uppercase tracking-wide">СТО</span>
                     </div>
-                    <p className="text-sm text-gray-700 mt-1 flex items-center gap-1 font-medium">
-                        <MapPin size={14} className="text-gray-500"/> {s.address}
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                        <a href={`tel:${s.phone}`} className="flex-1 py-1.5 bg-gray-100 text-black text-xs font-bold rounded flex items-center justify-center gap-1 hover:bg-gray-200 transition border border-gray-200">
-                           <Phone size={12}/> Подзвонити
-                        </a>
-                    </div>
+                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">{s.address}</p>
                 </div>
             ))}
         </div>
@@ -202,101 +176,100 @@ export default function DriverMapPage() {
                 if (s) setHighlightedStation(null);
             }}
             userLocation={activeRequest ? activeRequest.location : currentLocation}
-            isSos={!!activeRequest} 
-            highlightedStation={highlightedStation}
+            isSos={isSosRequest} 
+            highlightedStation={highlightedStation} // 🔥 Передаємо майстра для відображення
          />
 
+         {/* КНОПКИ СТВОРЕННЯ */}
          {!activeRequest && (
-            <div className="absolute bottom-8 right-6 flex flex-col items-end gap-3 z-20">
-                <button onClick={() => openCreate('planned')} className="flex items-center gap-3 bg-white pl-4 pr-2 py-3 rounded-full shadow-xl border border-gray-300 hover:bg-gray-50 active:scale-95 transition">
-                    <span className="text-sm font-bold text-gray-800">Приїду сам</span>
-                    <div className="bg-blue-600 text-white w-10 h-10 rounded-full flex items-center justify-center"><Wrench size={20} /></div>
+            <div className="absolute bottom-8 right-6 flex flex-col items-end gap-3 z-20 animate-in slide-in-from-bottom duration-500">
+                <button onClick={() => openCreate('planned')} className="group flex items-center gap-3 bg-white pl-5 pr-2 py-2 rounded-full shadow-xl border border-gray-200 hover:border-gray-300 hover:shadow-2xl transition active:scale-95">
+                    <span className="text-sm font-bold text-gray-700 group-hover:text-black">Приїду сам</span>
+                    <div className="bg-gray-100 group-hover:bg-blue-600 text-gray-600 group-hover:text-white w-10 h-10 rounded-full flex items-center justify-center transition-colors"><Wrench size={18} /></div>
                 </button>
-                <button onClick={() => openCreate('sos')} className="flex items-center gap-3 bg-white pl-4 pr-2 py-3 rounded-full shadow-xl border border-red-200 hover:bg-red-50 active:scale-95 transition">
-                    <span className="text-sm font-bold text-red-600">SOS Виклик</span>
-                    <div className="bg-red-600 text-white w-12 h-12 rounded-full flex items-center justify-center animate-pulse"><AlertTriangle size={24} /></div>
+                <button onClick={() => openCreate('sos')} className="group flex items-center gap-3 bg-white pl-5 pr-2 py-2 rounded-full shadow-xl border border-red-100 hover:border-red-300 hover:shadow-2xl hover:shadow-red-100 transition active:scale-95">
+                    <span className="text-sm font-bold text-red-600 group-hover:text-red-700">SOS Виклик</span>
+                    <div className="bg-red-600 text-white w-12 h-12 rounded-full flex items-center justify-center animate-pulse shadow-lg shadow-red-200"><AlertTriangle size={24} /></div>
                 </button>
             </div>
          )}
 
-         {/* ВІКНО АКТИВНОЇ ЗАЯВКИ */}
+         {/* 🔥 ОНОВЛЕНИЙ ВІДЖЕТ АКТИВНОЇ ЗАЯВКИ */}
          {activeRequest && (
-            <div className="absolute top-4 right-4 md:w-96 w-[calc(100%-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-30 animate-in slide-in-from-top max-h-[80vh] flex flex-col">
-                <div className={`p-4 flex justify-between items-center text-white ${activeRequest.description.includes('[SOS]') ? 'bg-red-600' : 'bg-blue-600'}`}>
-                    <div className="flex items-center gap-2">
-                        {isLoading ? <RefreshCw size={16} className="animate-spin"/> : <div className="w-2 h-2 bg-white rounded-full"></div>}
-                        <span className="font-bold text-sm uppercase">{offers.some(o => o.is_accepted) ? 'Майстер їде!' : 'Пошук виконавця...'}</span>
-                    </div>
-                    {/* Кнопка оновлення вручну */}
-                    <button 
-                        onClick={() => fetchOffers(activeRequest.id)} 
-                        className="bg-white/20 p-2 rounded-lg hover:bg-white/30 transition border border-white/20"
-                        title="Оновити список пропозицій"
-                    >
-                        <RefreshCw size={16}/>
-                    </button>
-                </div>
-
-                <div className="bg-gray-50 p-2 overflow-y-auto flex-1 scrollbar-hide">
-                    {offers.length === 0 && (
-                        <div className="text-center py-10 text-gray-500 text-sm">
-                            <p className="font-bold text-black text-lg">Заявку створено!</p>
-                            <p className="text-gray-500 mt-1 font-medium">Очікуйте оферів від майстрів поруч або оновіть список вручну.</p>
-                        </div>
-                    )}
-
-                    {offers.map(offer => (
-                        <div key={offer.id} className={`mb-2 p-3 rounded-xl border-2 shadow-sm transition ${offer.is_accepted ? 'bg-green-50 border-green-500' : 'bg-white border-gray-100'}`}>
-                            <div className="flex justify-between items-start mb-1">
-                                <div>
-                                    <span className="font-bold text-base text-black block">{offer.mechanic_name}</span>
-                                    <div className="flex gap-2 mt-1">
-                                        {offer.distance_km !== undefined && offer.distance_km !== null && (
-                                            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md font-extrabold border border-blue-200">
-                                                🚗 {offer.distance_km} км
-                                            </span>
-                                        )}
-                                        
-                                        {offer.station_lat && offer.station_lng && (
-                                            <button 
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleShowOnMap(offer);
-                                                }}
-                                                className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1 hover:bg-purple-200 border border-purple-200 transition"
-                                            >
-                                                <MapPin size={10}/> НА КАРТІ
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                <span className="font-black text-green-700 text-xl">{offer.price} ₴</span>
+            <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-30 animate-in slide-in-from-top duration-500">
+                <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden group">
+                    <div className={`h-1.5 w-full ${isSosRequest ? 'bg-red-600' : 'bg-blue-600'}`}></div>
+                    
+                    <div className="p-4">
+                        {/* Хедер віджета */}
+                        <div className="flex justify-between items-start mb-3">
+                            <div onClick={() => router.push('/driver/requests')} className="cursor-pointer">
+                                <h3 className="font-extrabold text-base text-black flex items-center gap-2 hover:underline">
+                                    {isSosRequest ? <AlertTriangle size={16} className="text-red-600"/> : <Wrench size={16} className="text-blue-600"/>}
+                                    {activeRequest.car_model}
+                                </h3>
+                                <p className="text-xs text-gray-400 font-bold mt-0.5">
+                                    {acceptedOffer ? 'Майстер очікує вас' : 'Пошук виконавців...'}
+                                </p>
                             </div>
-                            
-                            <p className="text-xs text-gray-800 my-2 bg-gray-100 p-3 rounded-lg border border-gray-200 font-medium leading-relaxed">{offer.comment}</p>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); checkMyRequests(); }}
+                                className={`bg-gray-100 p-2 rounded-full hover:bg-gray-200 text-black transition ${isRefreshing ? 'animate-spin' : ''}`}
+                            >
+                                <RefreshCw size={16}/>
+                            </button>
+                        </div>
 
-                            {offer.is_accepted ? (
-                                <div className="space-y-2 animate-in fade-in">
-                                    <a href={`tel:${offer.mechanic_phone}`} className="w-full bg-green-600 text-white py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 hover:bg-green-700 transition shadow-lg shadow-green-200">
-                                        <Phone size={16} /> ПОДЗВОНИТИ: {offer.mechanic_phone}
-                                    </a>
+                        {/* 🔥 СПИСОК ПРОПОЗИЦІЙ (Міні-версія) */}
+                        <div className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
+                            {offers.length === 0 ? (
+                                <div className="flex items-center gap-2 text-gray-500 text-xs font-bold justify-center py-4">
+                                    <Loader2 size={16} className={isRefreshing ? "animate-spin" : ""}/> 
+                                    {isRefreshing ? "Оновлюю..." : "Очікуємо відповіді..."}
                                 </div>
                             ) : (
-                                <button onClick={() => handleAcceptOffer(offer.id)} className="w-full bg-black text-white py-3 rounded-xl font-black text-sm hover:bg-gray-800 flex items-center justify-center gap-2 transition shadow-lg">
-                                    <CheckCircle size={16} /> ПРИЙНЯТИ
-                                </button>
+                                <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                                    {offers.map(offer => (
+                                        <div key={offer.id} className={`p-3 border-b border-gray-100 last:border-0 flex justify-between items-center hover:bg-gray-100 transition ${offer.is_accepted ? 'bg-green-50' : ''}`}>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-black">{offer.mechanic_name}</span>
+                                                    {offer.is_accepted && <span className="text-[10px] bg-green-200 text-green-800 px-1.5 rounded font-bold">Прийнято</span>}
+                                                </div>
+                                                <div className="text-xs text-gray-500 flex items-center gap-1">
+                                                    <span className="font-bold text-green-600">{offer.price} ₴</span>
+                                                    {offer.distance_km && <span>• {offer.distance_km} км</span>}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* 🔥 Кнопка показу на карті */}
+                                            {offer.station_lat && offer.station_lng && (
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        showMechanicOnMap(offer);
+                                                    }}
+                                                    className="p-2 bg-white border border-gray-200 rounded-lg text-blue-600 hover:bg-blue-50 hover:border-blue-200 transition shadow-sm"
+                                                    title="Показати на карті"
+                                                >
+                                                    <MapPin size={16}/>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
-                    ))}
-                </div>
 
-                {offers.some(o => o.is_accepted) && (
-                    <div className="p-3 bg-white border-t border-gray-100">
-                        <button onClick={handleFinishOrder} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-black transition shadow-xl border border-black">
-                            <CheckSquare size={20} /> РОБОТУ ВИКОНАНО
+                        {/* Футер */}
+                        <button 
+                            onClick={() => router.push('/driver/requests')}
+                            className="w-full mt-3 bg-black text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-gray-800 transition"
+                        >
+                            {acceptedOffer ? 'Деталі та контакти' : 'Керувати заявкою'} <ArrowRight size={14}/>
                         </button>
                     </div>
-                )}
+                </div>
             </div>
          )}
       </div>
@@ -305,10 +278,7 @@ export default function DriverMapPage() {
         <CreateRequestModal 
             defaultType={modalType} 
             onClose={() => setIsModalOpen(false)} 
-            onSuccess={() => {
-                setIsModalOpen(false);
-                checkMyRequests();
-            }} 
+            onSuccess={handleRequestCreated} 
         />
       )}
     </div>

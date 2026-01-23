@@ -3,18 +3,31 @@
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
-import { Plus, Trash2, Search, Loader2, Info, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, Search, Loader2, Info, CheckCircle, BookOpen, X, Wrench, Calendar, DollarSign } from 'lucide-react';
 import { CarData } from '../../app/profile/types';
+
+// Інтерфейс для історії ремонту (спрощений)
+interface RepairRecord {
+    id: number;
+    description: string;
+    created_at: string;
+    final_price?: number; // Це треба додати на бекенді, або брати з accepted offer
+    mechanic_name?: string;
+}
 
 export default function Garage() {
     const [cars, setCars] = useState<CarData[]>([]);
     const [loading, setLoading] = useState(true);
     
-    // Стан пошуку
+    // Стан для сервісної книжки
+    const [selectedCarHistory, setSelectedCarHistory] = useState<CarData | null>(null);
+    const [repairHistory, setRepairHistory] = useState<RepairRecord[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+
+    // Стан пошуку та форми
     const [searchPlate, setSearchPlate] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     
-    // Початковий стан (порожній)
     const initialCarState: CarData = {
         license_plate: '',
         brand_model: '',
@@ -52,7 +65,6 @@ export default function Garage() {
         } catch(e) { toast.error("Помилка видалення"); }
     };
 
-    // --- ЛОГІКА ПОШУКУ (Використовує твій існуючий lookup-car) ---
     const handleLookup = async () => {
         if (!searchPlate || searchPlate.length < 3) {
             toast.error("Введіть повний номер");
@@ -60,20 +72,15 @@ export default function Garage() {
         }
         setIsSearching(true);
         try {
-            // 👇 ТУТ ВИПРАВЛЕНО: використовуємо твій ендпоінт /lookup-car
             const res = await api.get(`/lookup-car`, { params: { plate: searchPlate } });
-            
             if (res.data.error) {
-                // Якщо бекенд повернув {"error": ...}
                 toast.error(res.data.error);
                 setNewCar(prev => ({ ...initialCarState, license_plate: searchPlate.toUpperCase() }));
             } else {
-                // Якщо знайшли - заповнюємо форму даними зі скрапера
                 setNewCar(res.data);
                 toast.success("Авто знайдено! Перевірте дані.");
             }
-            setMode('edit'); // Перемикаємо на перегляд даних
-            
+            setMode('edit');
         } catch (e: any) {
             console.error(e);
             toast.error("Помилка при пошуку. Введіть дані вручну.");
@@ -96,40 +103,142 @@ export default function Garage() {
         } catch (e) { toast.error("Помилка збереження"); }
     };
 
+    // 🔥 ЗАВАНТАЖЕННЯ ІСТОРІЇ РЕМОНТІВ
+    const handleOpenHistory = async (car: CarData) => {
+        setSelectedCarHistory(car);
+        setHistoryLoading(true);
+        try {
+            // Отримуємо всі заявки юзера
+            const res = await api.get('/my-requests');
+            // Фільтруємо ті, що 'done' і де назва авто збігається
+            // (В ідеалі треба фільтрувати по car_id, якщо бекенд це підтримує)
+            const history = res.data
+                .filter((r: any) => 
+                    r.status === 'done' && 
+                    r.car_model.toLowerCase().includes(car.brand_model.toLowerCase())
+                )
+                .map((r: any) => ({
+                    id: r.id,
+                    description: r.description,
+                    created_at: r.created_at,
+                    // Тут ми припускаємо, що в заявці є accepted_offer з ціною
+                    // Якщо немає - треба допрацювати бекенд
+                    final_price: r.offers?.find((o: any) => o.is_accepted)?.price || 0,
+                    mechanic_name: r.offers?.find((o: any) => o.is_accepted)?.mechanic_name || 'Майстер'
+                }));
+            
+            setRepairHistory(history);
+        } catch (e) {
+            console.error(e);
+            toast.error("Не вдалося завантажити історію");
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
     if (loading) return <div className="text-center py-4"><Loader2 className="animate-spin inline"/> Завантаження гаража...</div>;
 
     return (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
+            
             {/* СПИСОК АВТО */}
             <div className="grid gap-4 mb-8">
                 {cars.map(car => (
-                    <div key={car.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div>
-                            <div className="flex items-center gap-3">
-                                <h3 className="text-xl font-extrabold text-black">{car.brand_model}</h3>
-                                {car.color && (
-                                    <span className="text-xs px-2 py-0.5 bg-gray-100 rounded text-gray-600 border border-gray-200 capitalize">
-                                        {car.color}
-                                    </span>
-                                )}
+                    <div key={car.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between gap-4 transition hover:shadow-md">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <h3 className="text-xl font-extrabold text-black">{car.brand_model}</h3>
+                                    {car.color && (
+                                        <span className="text-xs px-2 py-0.5 bg-gray-100 rounded text-gray-600 border border-gray-200 capitalize">
+                                            {car.color}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap gap-3 text-sm font-bold text-gray-500 mt-2">
+                                    <span className="bg-gray-100 px-2 py-0.5 rounded border border-gray-200 text-black">{car.license_plate}</span>
+                                    <span>{car.year} р.</span>
+                                    {car.fuel && <span>• {car.fuel}</span>}
+                                    {car.engine_volume && <span>• {car.engine_volume}</span>}
+                                </div>
+                                {car.vin && <div className="text-xs text-gray-400 mt-1 font-mono">VIN: {car.vin}</div>}
                             </div>
-                            <div className="flex flex-wrap gap-3 text-sm font-bold text-gray-500 mt-2">
-                                <span className="bg-gray-100 px-2 py-0.5 rounded border border-gray-200 text-black">{car.license_plate}</span>
-                                <span>{car.year} р.</span>
-                                {car.fuel && <span>• {car.fuel}</span>}
-                                {car.engine_volume && <span>• {car.engine_volume}</span>}
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => handleOpenHistory(car)}
+                                    className="text-blue-600 bg-blue-50 hover:bg-blue-100 p-3 rounded-xl transition"
+                                    title="Сервісна книжка"
+                                >
+                                    <BookOpen size={20}/>
+                                </button>
+                                <button 
+                                    onClick={() => handleDeleteCar(car.id!)} 
+                                    className="text-red-500 hover:bg-red-50 p-3 rounded-xl transition"
+                                    title="Видалити"
+                                >
+                                    <Trash2 size={20}/>
+                                </button>
                             </div>
-                            {car.vin && <div className="text-xs text-gray-400 mt-1 font-mono">VIN: {car.vin}</div>}
                         </div>
-                        <button onClick={() => handleDeleteCar(car.id!)} className="text-red-500 hover:bg-red-50 p-3 rounded-xl transition self-end sm:self-center">
-                            <Trash2 size={20}/>
-                        </button>
                     </div>
                 ))}
                 {cars.length === 0 && <div className="text-center py-6 text-gray-400 border-2 border-dashed border-gray-200 rounded-2xl">Гараж порожній</div>}
             </div>
 
-            {/* ФОРМА */}
+            {/* МОДАЛКА ІСТОРІЇ (СЕРВІСНА КНИЖКА) */}
+            {selectedCarHistory && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[80vh]">
+                        <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h3 className="font-extrabold text-lg text-black">{selectedCarHistory.brand_model}</h3>
+                                <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Сервісна історія</p>
+                            </div>
+                            <button onClick={() => setSelectedCarHistory(null)} className="p-2 hover:bg-gray-200 rounded-full transition">
+                                <X size={20}/>
+                            </button>
+                        </div>
+                        
+                        <div className="p-0 overflow-y-auto custom-scrollbar flex-1 bg-gray-50">
+                            {historyLoading ? (
+                                <div className="py-10 text-center text-gray-400"><Loader2 className="animate-spin inline mb-2"/><br/>Завантаження історії...</div>
+                            ) : repairHistory.length === 0 ? (
+                                <div className="py-10 text-center text-gray-400">
+                                    <BookOpen size={40} className="mx-auto mb-2 opacity-20"/>
+                                    <p>Записів про ремонти немає.</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {repairHistory.map(record => (
+                                        <div key={record.id} className="p-5 bg-white hover:bg-gray-50 transition">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
+                                                    <Calendar size={12}/> {new Date(record.created_at).toLocaleDateString()}
+                                                </div>
+                                                <div className="flex items-center gap-1 font-extrabold text-green-700 bg-green-50 px-2 py-0.5 rounded-md text-sm">
+                                                    {record.final_price} ₴
+                                                </div>
+                                            </div>
+                                            <p className="text-sm font-medium text-black mb-2">{record.description}</p>
+                                            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 p-2 rounded-lg inline-block">
+                                                <Wrench size={12}/> Майстер: <span className="font-bold text-gray-700">{record.mechanic_name}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="p-4 border-t border-gray-100 bg-white">
+                            <button onClick={() => setSelectedCarHistory(null)} className="w-full py-3 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition">
+                                Закрити
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ФОРМА ДОДАВАННЯ (Без змін) */}
             <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100">
                 <h3 className="font-bold text-black mb-4 text-lg flex items-center gap-2">
                     <Plus size={20} className="bg-black text-white rounded-full p-0.5"/> Додати авто
