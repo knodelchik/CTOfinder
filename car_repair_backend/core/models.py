@@ -118,6 +118,14 @@ class Request(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='new')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    car = models.ForeignKey(
+        'Car', 
+        on_delete=models.SET_NULL, # Якщо авто видалять, історія заявок залишиться
+        null=True, 
+        blank=True, 
+        related_name='requests'
+    )
+
     def __str__(self):
         return f"Request {self.id} by {self.client}"
 

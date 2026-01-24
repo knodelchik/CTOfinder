@@ -43,6 +43,7 @@ ALLOWED_HOSTS = ['*']  # Дозволяємо всі хости для Render
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -54,6 +55,7 @@ INSTALLED_APPS = [
     'core',
     'ninja_extra',
     'ninja_jwt',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -149,3 +151,13 @@ MEDIA_URL = '/media/'
 
 # Фізичний шлях папки на диску, де будуть зберігатися файли
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Вказуємо ASGI додаток
+ASGI_APPLICATION = 'config.asgi.application'
+
+# Налаштування шару каналів (для розробки використовуємо пам'ять)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}

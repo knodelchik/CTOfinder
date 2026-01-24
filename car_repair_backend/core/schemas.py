@@ -65,7 +65,6 @@ class StationIn(Schema):
     description: str = ""
     services_list: str = ""
 
-# 👇 1. ДОДАЄМО ЦЕЙ КЛАС ПЕРЕД StationOutSchema
 class ReviewItemSchema(Schema):
     id: int
     author_name: str
@@ -81,7 +80,6 @@ class ReviewItemSchema(Schema):
     def resolve_created_at(obj):
         return obj.created_at.strftime('%Y-%m-%d')
 
-# 👇 ТЕПЕР StationOutSchema БАЧИТЬ ReviewItemSchema
 class StationOutSchema(Schema):
     id: int
     name: str
@@ -95,7 +93,6 @@ class StationOutSchema(Schema):
     
     photos: List[PhotoOutSchema] = [] 
     
-    # 👇 ТУТ ВИКОРИСТОВУЄТЬСЯ ReviewItemSchema
     reviews: List[ReviewItemSchema] = []
 
     @staticmethod
@@ -107,11 +104,14 @@ class StationOutSchema(Schema):
 # --- ЗАЯВКИ (REQUESTS) ---
 
 class RequestCreateSchema(Schema):
-    category_id: int
+    # 👇 ВИПРАВЛЕНО: Дозволяємо null
+    category_id: Optional[int] = None 
     car_model: str
     description: str
+    is_sos: bool = False
     lat: float
     lng: float
+    car_id: Optional[int] = None
 
 class RequestOutSchema(Schema):
     id: int
@@ -121,6 +121,7 @@ class RequestOutSchema(Schema):
     created_at: datetime
     location: dict
     has_review: bool = False
+    car_id: Optional[int] = None
     
     attachments: List[AttachmentOutSchema] = []
 

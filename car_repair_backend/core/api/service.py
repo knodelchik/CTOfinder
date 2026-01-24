@@ -38,7 +38,8 @@ def create_request(request, data: RequestCreateSchema):
         car_model=data.car_model,
         description=data.description, 
         location=Point(data.lng, data.lat), 
-        status='new'
+        status='new',
+        car_id=data.car_id if data.car_id else None,
     )
     return new_request
 

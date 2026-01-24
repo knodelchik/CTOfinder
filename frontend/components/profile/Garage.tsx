@@ -104,25 +104,26 @@ export default function Garage() {
     };
 
     // 🔥 ЗАВАНТАЖЕННЯ ІСТОРІЇ РЕМОНТІВ
+   // 🔥 ОНОВЛЕНА ФУНКЦІЯ: Тепер фільтруємо строго по car_id
     const handleOpenHistory = async (car: CarData) => {
         setSelectedCarHistory(car);
         setHistoryLoading(true);
         try {
-            // Отримуємо всі заявки юзера
             const res = await api.get('/my-requests');
-            // Фільтруємо ті, що 'done' і де назва авто збігається
-            // (В ідеалі треба фільтрувати по car_id, якщо бекенд це підтримує)
+            
             const history = res.data
                 .filter((r: any) => 
+                    // 1. Статус "Виконано"
                     r.status === 'done' && 
-                    r.car_model.toLowerCase().includes(car.brand_model.toLowerCase())
+                    // 2. Строга перевірка ID (якщо у заявки є car_id)
+                    (r.car_id === car.id || 
+                     // Фоллбек для старих заявок: перевірка по назві (якщо car_id null)
+                     (!r.car_id && r.car_model.toLowerCase().includes(car.brand_model.toLowerCase())))
                 )
                 .map((r: any) => ({
                     id: r.id,
                     description: r.description,
                     created_at: r.created_at,
-                    // Тут ми припускаємо, що в заявці є accepted_offer з ціною
-                    // Якщо немає - треба допрацювати бекенд
                     final_price: r.offers?.find((o: any) => o.is_accepted)?.price || 0,
                     mechanic_name: r.offers?.find((o: any) => o.is_accepted)?.mechanic_name || 'Майстер'
                 }));
